@@ -1,4 +1,5 @@
-用Claude Code的Fable5 写的一个翻译日语内嵌字幕视频的软件，支持NSFW的语义，可以双语字幕或者拼接。Fable5 Unicode随便烧掉100澳🔪的token(lol).
+## 用Claude Code的Fable5 写的一个翻译日语内嵌字幕视频的软件，支持NSFW的语义，可以双语字幕或者拼接。Fable5 Unicode随便烧掉100澳🔪的token(lol).
+
 <img width="553" height="485" alt="image" src="https://github.com/user-attachments/assets/ee291748-313d-4b4a-9e41-82b2da9869c0" />
 
 # 视频硬字幕翻译器
