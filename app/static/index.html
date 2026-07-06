@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>视频硬字幕翻译器</title>
+<style>
+  :root {
+    --bg: #12141a; --panel: #1c1f28; --panel2: #232734; --line: #303648;
+    --txt: #e6e9f0; --dim: #8b93a7; --acc: #6c9ef8; --ok: #4cc38a; --err: #e5646e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--txt); font: 15px/1.6 "Microsoft YaHei", sans-serif;
+         max-width: 900px; margin: 0 auto; padding: 32px 20px 60px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 24px; }
+  #drop { border: 2px dashed var(--line); border-radius: 14px; background: var(--panel);
+          padding: 46px 20px; text-align: center; cursor: pointer; transition: .15s; }
+  #drop:hover, #drop.over { border-color: var(--acc); background: var(--panel2); }
+  #drop .big { font-size: 17px; margin-bottom: 6px; }
+  #drop .hint { color: var(--dim); font-size: 13px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+          padding: 18px 20px; margin-top: 16px; }
+  .row { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  .kv { color: var(--dim); font-size: 13px; }
+  .kv b { color: var(--txt); font-weight: 600; }
+  select, button { background: var(--panel2); color: var(--txt); border: 1px solid var(--line);
+                   border-radius: 8px; padding: 7px 14px; font-size: 14px; cursor: pointer; }
+  button.primary { background: var(--acc); border-color: var(--acc); color: #0c1018; font-weight: 700; }
+  button.danger { color: var(--err); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  label { color: var(--dim); font-size: 13px; }
+  .stage { margin: 14px 0 4px; }
+  .stage .name { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+  .bar { height: 8px; background: var(--panel2); border-radius: 5px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--acc); border-radius: 5px;
+           transition: width .4s; }
+  .bar.done i { background: var(--ok); }
+  #msg { color: var(--dim); font-size: 13px; margin-top: 10px; min-height: 20px;
+         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #result { display: none; }
+  #result .path { color: var(--ok); word-break: break-all; font-weight: 600; }
+  #error { display: none; color: var(--err); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { color: var(--dim); font-weight: 500; }
+  td.src { color: var(--dim); width: 42%; }
+  td input { width: 100%; background: var(--panel2); border: 1px solid var(--line);
+             border-radius: 6px; color: var(--txt); padding: 4px 8px; font-size: 13px; }
+  #review { display: none; max-height: 480px; overflow-y: auto; }
+  .center { text-align: center; margin-top: 14px; }
+</style>
+</head>
+<body>
+  <h1>视频硬字幕翻译器</h1>
+  <div class="sub">日语/英语内嵌字幕 → 简体中文 · 完全本地运行 · OCR + Sakura-GalTransl 翻译 + 原位替换</div>
+
+  <div id="drop">
+    <div class="big">拖入 MP4 视频，或点击选择文件</div>
+    <div class="hint">点击选择：输出到原视频同目录 · 拖拽：优先定位原视频目录，找不到时输出到系统视频文件夹</div>
+    <input type="file" id="fileInput" accept="video/*" style="display:none">
+  </div>
+
+  <div class="card" id="fileCard" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <div id="fname" style="font-weight:600"></div>
+        <div class="kv" id="finfo"></div>
+      </div>
+      <div class="row">
+        <label>源语言
+          <select id="lang">
+            <option value="auto">自动</option>
+            <option value="ja">日语</option>
+            <option value="en">英语</option>
+          </select>
+        </label>
+        <label>字幕模式
+          <select id="submode">
+            <option value="replace">替换原字幕</option>
+            <option value="append">原字幕旁加中文</option>
+          </select>
+        </label>
+        <label>擦除
+          <select id="erase">
+            <option value="fast">快速</option>
+            <option value="quality">质量</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="review_opt"> 合成前人工校对</label>
+        <button class="primary" id="startBtn">开始翻译</button>
+        <button class="danger" id="cancelBtn" style="display:none">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="progCard" style="display:none">
+    <div id="stages"></div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card" id="review">
+    <div style="margin-bottom:10px">校对译文（可直接修改，改完点继续）</div>
+    <table><thead><tr><th style="width:60px">时间</th><th>原文</th><th>译文</th></tr></thead>
+    <tbody id="rvBody"></tbody></table>
+    <div class="center"><button class="primary" id="resumeBtn">确认并继续合成</button></div>
+  </div>
+
+  <div class="card" id="result">
+    <div>✅ 完成！输出文件：</div><div class="path" id="outPath"></div>
+    <div class="kv" id="timing" style="margin-top:6px"></div>
+  </div>
+  <div class="card" id="error"></div>
+
+<script>
+const STAGE_LIST = [
+  ["detect", "扫描字幕帧"], ["ocr", "识别原文"],
+  ["translate", "翻译"], ["render", "擦除与合成"]
+];
+const $ = id => document.getElementById(id);
+let videoPath = null, polling = null, reviewShown = false;
+
+function fmtDur(s) {
+  s = Math.round(s);
+  const h = ~~(s / 3600), m = ~~((s % 3600) / 60);
+  return (h ? h + "小时" : "") + (m ? m + "分" : "") + (s % 60) + "秒";
+}
+
+async function setVideo(path) {
+  const r = await fetch("/api/probe", {method: "POST", headers: {"Content-Type": "application/json"},
+                                       body: JSON.stringify({path})});
+  const info = await r.json();
+  if (info.error) { alert("无法读取视频：" + info.error); return; }
+  videoPath = path;
+  $("fname").textContent = path;
+  $("finfo").textContent = `${info.width}×${info.height} · ${info.fps.toFixed(2)} fps · ` +
+                           `${fmtDur(info.duration)} · ${info.has_audio ? "有音频" : "无音频"}`;
+  $("fileCard").style.display = "";
+  $("result").style.display = "none"; $("error").style.display = "none";
+}
+
+$("submode").onchange = () => {
+  $("erase").disabled = $("submode").value === "append"; // 双字幕模式不擦除
+};
+
+$("drop").onclick = async () => {
+  const r = await fetch("/api/pick", {method: "POST"});
+  const d = await r.json();
+  if (d.path) setVideo(d.path);
+};
+$("drop").ondragover = e => { e.preventDefault(); $("drop").classList.add("over"); };
+$("drop").ondragleave = () => $("drop").classList.remove("over");
+$("drop").ondrop = async e => {
+  e.preventDefault(); $("drop").classList.remove("over");
+  const f = e.dataTransfer.files[0];
+  if (!f) return;
+  $("drop").querySelector(".big").textContent = "正在接收文件…";
+  const fd = new FormData(); fd.append("file", f);
+  const r = await fetch("/api/upload", {method: "POST", body: fd});
+  const d = await r.json();
+  $("drop").querySelector(".big").textContent = "拖入 MP4 视频，或点击选择文件";
+  if (d.path) setVideo(d.path);
+};
+
+function buildStages() {
+  $("stages").innerHTML = STAGE_LIST.map(([k, n]) =>
+    `<div class="stage"><div class="name"><span>${n}</span><span id="pct_${k}">—</span></div>
+     <div class="bar" id="bar_${k}"><i></i></div></div>`).join("");
+}
+
+$("startBtn").onclick = async () => {
+  const body = {path: videoPath, src_lang: $("lang").value,
+                erase_mode: $("erase").value, sub_mode: $("submode").value,
+                review: $("review_opt").checked};
+  const r = await fetch("/api/start", {method: "POST", headers: {"Content-Type": "application/json"},
+                                       body: JSON.stringify(body)});
+  const d = await r.json();
+  if (d.error) { alert(d.error); return; }
+  reviewShown = false;
+  buildStages();
+  $("progCard").style.display = ""; $("result").style.display = "none";
+  $("error").style.display = "none"; $("review").style.display = "none";
+  $("startBtn").disabled = true; $("cancelBtn").style.display = "";
+  startPolling();
+};
+
+$("cancelBtn").onclick = () => fetch("/api/cancel", {method: "POST"});
+
+$("resumeBtn").onclick = async () => {
+  const inputs = document.querySelectorAll("#rvBody input");
+  const trans = {};
+  inputs.forEach(inp => trans[inp.dataset.id] = inp.value);
+  await fetch("/api/subs", {method: "POST", headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify({trans})});
+  await fetch("/api/resume", {method: "POST"});
+  $("review").style.display = "none";
+};
+
+async function showReview() {
+  const subs = await (await fetch("/api/subs")).json();
+  $("rvBody").innerHTML = subs.map(s =>
+    `<tr><td>${fmtDur(s.time)}</td><td class="src">${s.text.replace(/</g, "&lt;")}</td>
+     <td><input data-id="${s.id}" value="${(s.trans || "").replace(/"/g, "&quot;")}"></td></tr>`).join("");
+  $("review").style.display = "";
+}
+
+function applyStatus(s) {
+  if (s.status === "idle") return;
+  const order = {detect: 0, events: 0, ocr: 1, translate: 2, render: 3};
+  const cur = order[s.stage] ?? -1;
+  STAGE_LIST.forEach(([k], i) => {
+    const bar = $("bar_" + k), pct = $("pct_" + k);
+    let v = i < cur ? 1 : i === cur ? s.progress : 0;
+    if (s.status === "done") v = 1;
+    bar.querySelector("i").style.width = (v * 100) + "%";
+    bar.classList.toggle("done", v >= 1);
+    pct.textContent = v >= 1 ? "✓" : i === cur ?
+      (v * 100).toFixed(0) + "%" + (s.eta ? `（剩余约 ${fmtDur(s.eta)}）` : "") : "—";
+  });
+  $("msg").textContent = s.message || "";
+
+  if (s.status === "awaiting_review" && !reviewShown) { reviewShown = true; showReview(); }
+  if (s.status === "done") {
+    stopPolling();
+    $("outPath").textContent = s.out_path;
+    $("timing").textContent = "总耗时 " + fmtDur(s.finished - s.started);
+    $("result").style.display = "";
+    $("startBtn").disabled = false; $("cancelBtn").style.display = "none";
+  }
+  if (s.status === "error" || s.status === "cancelled") {
+    stopPolling();
+    $("error").textContent = s.status === "error" ? "出错：" + s.error : "已取消";
+    $("error").style.display = "";
+    $("startBtn").disabled = false; $("cancelBtn").style.display = "none";
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  try {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = e => applyStatus(JSON.parse(e.data));
+    ws.onerror = () => fallbackPoll();
+    ws.onclose = () => { if (!polling) fallbackPoll(); };
+    polling = ws;
+  } catch { fallbackPoll(); }
+}
+function fallbackPoll() {
+  polling = setInterval(async () => {
+    applyStatus(await (await fetch("/api/status")).json());
+  }, 800);
+}
+function stopPolling() {
+  if (polling) {
+    if (polling.close) polling.close(); else clearInterval(polling);
+    polling = null;
+  }
+}
+// 页面刷新后若有任务在跑，恢复显示
+(async () => {
+  const s = await (await fetch("/api/status")).json();
+  if (s.status && s.status !== "idle") {
+    if (s.video) setVideo(s.video);
+    buildStages(); $("progCard").style.display = "";
+    if (["running", "awaiting_review", "pending"].includes(s.status)) {
+      $("startBtn").disabled = true; $("cancelBtn").style.display = "";
+      startPolling();
+    }
+    applyStatus(s);
+  }
+})();
+</script>
+</body>
+</html>
